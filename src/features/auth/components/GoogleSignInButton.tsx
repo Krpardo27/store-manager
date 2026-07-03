@@ -16,7 +16,7 @@ export default function GoogleSignInButton({
   variant = "primary",
   className = "",
   text = "Iniciar sesión con Google",
-  callbackURL = "/admin",
+  callbackURL = "/auth",
 }: GoogleSignInButtonProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

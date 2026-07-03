@@ -5,9 +5,72 @@
 
 generator client {
   provider = "prisma-client"
-  output   = "../app/generated/prisma"
+  output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  role          String    @default("user")
+  sessions      Session[]
+  accounts      Account[]
+
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("sessions")
+}
+
+model Account {
+  id             String    @id @default(cuid())
+  accountId      String
+  providerId     String
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken    String?
+  accessTokenExpiresAt DateTime?
+  refreshToken   String?
+  refreshTokenExpiresAt DateTime?
+  idToken        String?
+  expiresAt      Int?
+  tokenType      String?
+  scope          String?
+  password       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([userId, providerId])
+  @@map("accounts")
+}
+
+model Verification {
+  id         String   @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verifications")
 }

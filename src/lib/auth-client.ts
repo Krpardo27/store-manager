@@ -9,12 +9,12 @@ export const authClient = createAuthClient({
 
 function getSafeCallbackPath(callbackURL?: string) {
   if (!callbackURL) {
-    return "/premios-musa";
+    return "/auth";
   }
 
   const normalized = callbackURL.trim();
   if (!normalized.startsWith("/") || normalized.startsWith("//")) {
-    return "/premios-musa";
+    return "/auth";
   }
 
   return normalized;
@@ -24,11 +24,10 @@ function getSafeCallbackPath(callbackURL?: string) {
 export const signInWithGoogle = async (callbackURL?: string) => {
   try {
     const safeCallbackPath = getSafeCallbackPath(callbackURL);
-    const processingPath = `/auth/procesando-acceso?redirectTo=${encodeURIComponent(safeCallbackPath)}`;
 
     const data = await authClient.signIn.social({
       provider: "google",
-      callbackURL: processingPath,
+      callbackURL: safeCallbackPath,
     });
     return data;
   } catch (error) {
@@ -37,4 +36,4 @@ export const signInWithGoogle = async (callbackURL?: string) => {
   }
 };
 
-export const { signIn } = authClient;
+export const { signIn, signOut } = authClient;
