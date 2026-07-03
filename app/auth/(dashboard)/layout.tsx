@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import LogoutButton from "@/features/auth/components/LogoutButton";
 import DashboardSidebar from "@/features/admin/products/components/DashboardSidebar";
 
+export const dynamic = "force-dynamic";
+
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
