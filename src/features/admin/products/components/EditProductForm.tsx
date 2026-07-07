@@ -235,7 +235,7 @@ export default function EditProductForm({
         <button
           type="submit"
           disabled={isPending || !hasPendingChanges}
-          className="inline-flex h-11 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+          className="inline-flex cursor-pointer h-11 items-center justify-center rounded-xl bg-zinc-900 px-5 text-sm font-semibold text-white transition-colors hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isPending ? "Guardando..." : hasPendingChanges ? "Guardar cambios" : "Sin cambios"}
         </button>

@@ -1,18 +1,61 @@
-import { prisma } from "@/lib/prisma";
+import { Suspense } from "react";
 import Link from "next/link";
+import ProductSearch from "@/features/admin/products/components/ProductSearch";
+import ProductsTabel from "@/features/admin/products/components/ProductsTabel";
 
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency: "CLP",
-    maximumFractionDigits: 0,
-  }).format(value);
+type InventarioPageProps = {
+  searchParams: Promise<{
+    q?: string;
+    page?: string;
+  }>;
+};
+
+function ProductsTableLoader() {
+  return (
+    <div className="p-5">
+      <div className="overflow-hidden rounded-xl border border-zinc-100">
+        <div className="hidden grid-cols-6 gap-4 border-b border-zinc-100 bg-zinc-50 px-5 py-3 md:grid">
+          <span className="h-3 w-24 animate-pulse rounded bg-zinc-200" />
+          <span className="h-3 w-16 animate-pulse rounded bg-zinc-200" />
+          <span className="h-3 w-16 animate-pulse rounded bg-zinc-200" />
+          <span className="h-3 w-16 animate-pulse rounded bg-zinc-200" />
+          <span className="h-3 w-16 animate-pulse rounded bg-zinc-200" />
+          <span className="h-3 w-16 animate-pulse rounded bg-zinc-200" />
+        </div>
+
+        <div className="divide-y divide-zinc-100">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div
+              key={index}
+              className="grid gap-3 px-5 py-4 md:grid-cols-6 md:items-center"
+            >
+              <span className="h-4 w-40 animate-pulse rounded bg-zinc-200" />
+              <span className="h-4 w-20 animate-pulse rounded bg-zinc-200" />
+              <span className="h-4 w-24 animate-pulse rounded bg-zinc-200" />
+              <span className="h-4 w-16 animate-pulse rounded bg-zinc-200" />
+              <span className="h-4 w-24 animate-pulse rounded bg-zinc-200" />
+              <span className="h-8 w-24 animate-pulse rounded-lg bg-zinc-200" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-2 text-sm text-zinc-500">
+        <span className="h-4 w-4 rounded-full border-2 border-zinc-300 border-t-zinc-700 animate-spin" />
+        Cargando productos...
+      </div>
+    </div>
+  );
 }
 
-export default async function InventarioPage() {
-  const products = await prisma.product.findMany({
-    orderBy: { updatedAt: "desc" },
-  });
+export default async function InventarioPage({ searchParams }: InventarioPageProps) {
+  const params = await searchParams;
+  const query = (params.q ?? "").trim();
+
+  const parsedPage = Number(params.page ?? "1");
+  const currentPage = Number.isFinite(parsedPage) && parsedPage > 0 ? Math.floor(parsedPage) : 1;
+
+  const itemsPerPage = 10;
 
   return (
     <section className="space-y-6">
@@ -39,76 +82,22 @@ export default async function InventarioPage() {
         <div className="border-b border-zinc-100 p-5">
           <h3 className="text-lg font-semibold text-zinc-900">Productos registrados</h3>
           <p className="mt-1 text-sm text-zinc-600">Listado rapido del inventario actual.</p>
+          <div className="mt-4">
+            <ProductSearch
+              autoFocus
+              showScannerHint
+              placeholder="Escanea o escribe nombre, SKU o codigo..."
+            />
+          </div>
         </div>
 
-        <div className="overflow-hidden md:overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="hidden bg-zinc-50 text-xs uppercase tracking-[0.16em] text-zinc-500 md:table-header-group">
-              <tr>
-                <th className="px-5 py-3 font-semibold">Producto</th>
-                <th className="px-5 py-3 font-semibold">SKU</th>
-                <th className="px-5 py-3 font-semibold">Precio</th>
-                <th className="px-5 py-3 font-semibold">Cantidad</th>
-                <th className="px-5 py-3 font-semibold">Estado</th>
-                <th className="px-5 py-3 font-semibold">Acciones</th>
-              </tr>
-            </thead>
-            <tbody className="block divide-y divide-zinc-100 md:table-row-group">
-              {products.map((product) => {
-                const lowStock = product.quantity <= product.minStock;
-
-                return (
-                  <tr
-                    key={product.id}
-                    className="grid gap-3 px-5 py-4 text-zinc-700 md:table-row md:px-0 md:py-0"
-                  >
-                    <td className="md:px-5 md:py-4">
-                      <p className="font-medium text-zinc-900">{product.name}</p>
-                      {product.description && <p className="mt-1 text-xs text-zinc-500">{product.description}</p>}
-                    </td>
-                    <td className="flex items-center justify-between gap-4 md:table-cell md:px-5 md:py-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 md:hidden">SKU</span>
-                      <span>{product.sku ?? "-"}</span>
-                    </td>
-                    <td className="flex items-center justify-between gap-4 md:table-cell md:px-5 md:py-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 md:hidden">Precio</span>
-                      <span>{formatCurrency(product.price)}</span>
-                    </td>
-                    <td className="flex items-center justify-between gap-4 md:table-cell md:px-5 md:py-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 md:hidden">Cantidad</span>
-                      <span className={lowStock ? "font-semibold text-amber-700" : "text-zinc-700"}>
-                        {product.quantity}
-                      </span>
-                    </td>
-                    <td className="flex items-center justify-between gap-4 md:table-cell md:px-5 md:py-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 md:hidden">Estado</span>
-                      <span className={product.isActive ? "text-emerald-700" : "text-zinc-500"}>
-                        {product.isActive ? "Activo" : "Inactivo"}
-                      </span>
-                    </td>
-                    <td className="flex items-center justify-between gap-4 md:table-cell md:px-5 md:py-4">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500 md:hidden">Acciones</span>
-                      <Link
-                        href={`/dashboard/inventario/${product.id}`}
-                        className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-200 px-3 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
-                      >
-                        Editar
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {products.length === 0 && (
-                <tr className="block md:table-row">
-                  <td colSpan={6} className="block px-5 py-8 text-center text-sm text-zinc-500 md:table-cell">
-                    Aun no hay productos registrados.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Suspense key={`${query}-${currentPage}`} fallback={<ProductsTableLoader />}>
+          <ProductsTabel
+            query={query}
+            currentPage={currentPage}
+            itemsPerPage={itemsPerPage}
+          />
+        </Suspense>
       </div>
     </section>
   );
