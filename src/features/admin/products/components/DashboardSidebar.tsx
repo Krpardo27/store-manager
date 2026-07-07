@@ -6,16 +6,16 @@ import { FiBox, FiDollarSign, FiGrid, FiHome, FiUsers } from "react-icons/fi";
 
 import { dashboardNavItems } from "./dashboard-nav-items";
 
-export default function DashboardSidebar() {
-  const pathname = usePathname();
-
-  const iconMap = {
+const iconMap = {
     home: FiHome,
     sales: FiDollarSign,
     inventory: FiBox,
     clients: FiUsers,
     cash: FiGrid,
   } as const;
+
+export default function DashboardSidebar() {
+  const pathname = usePathname();
 
   return (
     <aside className="hidden rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm lg:sticky lg:top-6 lg:block lg:self-start">

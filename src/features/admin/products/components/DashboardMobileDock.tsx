@@ -5,19 +5,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FiBox, FiDollarSign, FiGrid, FiHome, FiUsers } from "react-icons/fi";
 
-import { dashboardNavItems } from "./dashboard-nav-items";
-
-export default function DashboardMobileDock() {
-  const pathname = usePathname();
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-
-  const iconMap = {
+const iconMap = {
     home: FiHome,
     sales: FiDollarSign,
     inventory: FiBox,
     clients: FiUsers,
     cash: FiGrid,
   } as const;
+
+import { dashboardNavItems } from "./dashboard-nav-items";
+
+export default function DashboardMobileDock() {
+  const pathname = usePathname();
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   const getDockScale = (index: number, isActive: boolean) => {
     if (hoveredIndex === null) {

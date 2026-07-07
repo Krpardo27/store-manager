@@ -163,7 +163,7 @@ export default function AddProductForm({ initialSku = "" }: AddProductFormProps)
 
           {isScannerOpen && (
             <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black">
-              <video ref={videoRef} className="h-44 w-full object-cover" muted />
+              <video ref={videoRef} className="h-44 w-full object-cover" muted aria-label="Vista previa de la cámara para escanear el SKU"  />
             </div>
           )}
 

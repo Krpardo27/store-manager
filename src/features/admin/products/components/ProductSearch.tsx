@@ -297,7 +297,7 @@ export default function ProductSearch({
 
           {isCameraOpen && (
             <div className="mt-2 overflow-hidden rounded-lg border border-zinc-200 bg-black">
-              <video ref={videoRef} className="h-44 w-full object-cover" muted />
+              <video ref={videoRef} className="h-44 w-full object-cover" muted aria-label="Vista previa de la cámara para buscar productos" />
             </div>
           )}
         </div>

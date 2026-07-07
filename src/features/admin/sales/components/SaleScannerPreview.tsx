@@ -33,7 +33,7 @@ export default function SaleScannerPreview({
       </div>
       <p className="text-xs text-zinc-500">Escaneo movil activo. Enfoca el codigo hasta detectar.</p>
       <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black">
-        <video ref={videoRef} className="h-56 w-full object-cover" muted />
+        <video ref={videoRef} className="h-56 w-full object-cover" muted aria-label="Vista previa de la cámara para escanear códigos" />
       </div>
     </div>
   );
