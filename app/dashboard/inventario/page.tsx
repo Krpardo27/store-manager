@@ -86,6 +86,7 @@ export default async function InventarioPage({ searchParams }: InventarioPagePro
             <ProductSearch
               autoFocus
               showScannerHint
+              enableCameraScan
               placeholder="Escanea o escribe nombre, SKU o codigo..."
             />
           </div>

@@ -2,7 +2,16 @@ import Link from "next/link";
 
 import AddProductForm from "@/features/admin/products/components/AddProductForm";
 
-export default function NewProductPage() {
+type NewProductPageProps = {
+  searchParams: Promise<{
+    sku?: string;
+  }>;
+};
+
+export default async function NewProductPage({ searchParams }: NewProductPageProps) {
+  const params = await searchParams;
+  const initialSku = (params.sku ?? "").trim();
+
   return (
     <section className="space-y-6">
       <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -26,7 +35,7 @@ export default function NewProductPage() {
         </div>
       </div>
 
-      <AddProductForm />
+      <AddProductForm initialSku={initialSku} />
     </section>
   );
 }

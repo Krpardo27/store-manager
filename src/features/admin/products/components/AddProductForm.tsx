@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useTransition, type FormEvent } from "react";
+import { useActionState, useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Swal from "sweetalert2";
 
@@ -18,14 +18,193 @@ function fieldError(state: ProductActionState, field: string) {
   return state.fieldErrors?.[field as keyof NonNullable<ProductActionState["fieldErrors"]>]?.[0];
 }
 
-export default function AddProductForm() {
+type AddProductFormProps = {
+  initialSku?: string;
+};
+
+type BarcodeDetectorInstance = {
+  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
+};
+
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => BarcodeDetectorInstance;
+
+type GlobalWithBarcodeDetector = typeof globalThis & {
+  BarcodeDetector?: BarcodeDetectorConstructor;
+};
+
+export default function AddProductForm({ initialSku = "" }: AddProductFormProps) {
   const router = useRouter();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const frameRequestRef = useRef<number | null>(null);
+  const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
+
   const [isTransitionPending, startTransition] = useTransition();
+  const [skuValue, setSkuValue] = useState(initialSku.toUpperCase());
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+  const [isStartingScanner, setIsStartingScanner] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [state, formAction, isActionPending] = useActionState(
     createProductAction,
     initialProductActionState,
   );
   const isPending = isActionPending || isTransitionPending;
+
+  const stopSkuScanner = () => {
+    if (zxingControlsRef.current) {
+      zxingControlsRef.current.stop();
+      zxingControlsRef.current = null;
+    }
+
+    if (frameRequestRef.current !== null) {
+      cancelAnimationFrame(frameRequestRef.current);
+      frameRequestRef.current = null;
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+
+    setIsScannerOpen(false);
+  };
+
+  const waitForVideoElement = async (attempts = 8) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (videoRef.current) {
+        return videoRef.current;
+      }
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+
+    return null;
+  };
+
+  const startSkuScanner = async () => {
+    const globalWithDetector = globalThis as GlobalWithBarcodeDetector;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setScanError("No se puede acceder a la camara en este dispositivo.");
+      return;
+    }
+
+    const isSecure =
+      window.isSecureContext ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    if (!isSecure) {
+      setScanError("Para usar camara abre la app en HTTPS (o localhost).");
+      return;
+    }
+
+    setIsStartingScanner(true);
+    setScanError(null);
+
+    try {
+      stopSkuScanner();
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: {
+            ideal: "environment",
+          },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      setIsScannerOpen(true);
+
+      const video = await waitForVideoElement();
+      if (!video) {
+        throw new Error("No se encontro el visor de camara.");
+      }
+
+      video.srcObject = stream;
+      video.setAttribute("playsinline", "true");
+      await video.play();
+
+      const onDetected = (rawValue: string) => {
+        const normalized = rawValue.trim().toUpperCase();
+        if (!normalized) {
+          return;
+        }
+
+        setSkuValue(normalized);
+        stopSkuScanner();
+        void Swal.fire({
+          icon: "success",
+          title: "SKU detectado",
+          text: `Codigo capturado: ${normalized}`,
+          timer: 1300,
+          showConfirmButton: false,
+        });
+      };
+
+      if (globalWithDetector.BarcodeDetector) {
+        const detector = new globalWithDetector.BarcodeDetector({
+          formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "qr_code"],
+        });
+
+        const scanFrame = async () => {
+          if (!videoRef.current || !streamRef.current) {
+            return;
+          }
+
+          try {
+            const barcodes = await detector.detect(videoRef.current);
+            const rawValue = barcodes[0]?.rawValue?.trim();
+            if (rawValue) {
+              onDetected(rawValue);
+              return;
+            }
+          } catch {
+            // Seguimos intentando en el siguiente frame.
+          }
+
+          frameRequestRef.current = requestAnimationFrame(() => {
+            void scanFrame();
+          });
+        };
+
+        frameRequestRef.current = requestAnimationFrame(() => {
+          void scanFrame();
+        });
+
+        return;
+      }
+
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatReader(undefined, {
+        delayBetweenScanAttempts: 150,
+        delayBetweenScanSuccess: 500,
+      });
+
+      const controls = await reader.decodeFromStream(stream, video, (result) => {
+        const rawValue = result?.getText()?.trim();
+        if (rawValue) {
+          onDetected(rawValue);
+        }
+      });
+
+      zxingControlsRef.current = controls;
+    } catch {
+      stopSkuScanner();
+      setScanError("No se pudo iniciar el escaner de SKU. Revisa camara y permisos.");
+    } finally {
+      setIsStartingScanner(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -81,6 +260,12 @@ export default function AddProductForm() {
     }
   }, [router, state.message, state.status]);
 
+  useEffect(() => {
+    return () => {
+      stopSkuScanner();
+    };
+  }, []);
+
   return (
     <form
       onSubmit={handleSubmit}
@@ -108,14 +293,44 @@ export default function AddProductForm() {
           {fieldError(state, "name") && <p className="text-xs text-red-600">{fieldError(state, "name")}</p>}
         </label>
 
-        <label className="space-y-1.5 text-sm font-medium text-zinc-700">
-          SKU
+        <div className="space-y-1.5 text-sm font-medium text-zinc-700">
+          <label htmlFor="new-product-sku">SKU</label>
           <input
+            id="new-product-sku"
             name="sku"
+            value={skuValue}
+            onChange={(event) => setSkuValue(event.target.value.toUpperCase())}
             className="h-11 w-full rounded-xl border border-zinc-200 px-3 text-sm uppercase text-zinc-900 outline-none transition-colors focus:border-zinc-500"
           />
+
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (isScannerOpen) {
+                  stopSkuScanner();
+                  return;
+                }
+
+                void startSkuScanner();
+              }}
+              disabled={isStartingScanner}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-zinc-300 bg-white px-3 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isStartingScanner ? "Abriendo camara..." : isScannerOpen ? "Cerrar camara" : "Escanear SKU"}
+            </button>
+          </div>
+
+          {scanError && <p className="text-xs text-red-600">{scanError}</p>}
+
+          {isScannerOpen && (
+            <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black">
+              <video ref={videoRef} className="h-44 w-full object-cover" muted />
+            </div>
+          )}
+
           {fieldError(state, "sku") && <p className="text-xs text-red-600">{fieldError(state, "sku")}</p>}
-        </label>
+        </div>
 
         <label className="space-y-1.5 text-sm font-medium text-zinc-700">
           Precio
