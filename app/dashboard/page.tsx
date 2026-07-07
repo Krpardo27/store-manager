@@ -2,7 +2,7 @@ import Link from "next/link";
 
 import { dashboardNavItems } from "@/features/admin/products/components/dashboard-nav-items";
 
-const moduleItems = dashboardNavItems.filter((item) => item.href !== "/auth");
+const moduleItems = dashboardNavItems.filter((item) => item.href !== "/dashboard");
 
 export default function DashboardPage() {
   return (

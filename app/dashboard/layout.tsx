@@ -12,11 +12,11 @@ export default async function DashboardLayout({
   const { session, isAuth, isAdmin } = await requireAdmin();
 
   if (!isAuth || !session) {
-    redirect("/auth/login?callbackURL=/auth");
+    redirect("/auth/login?callbackURL=/dashboard");
   }
 
   if (!isAdmin) {
-    redirect("/auth/login?callbackURL=/auth&error=forbidden");
+    redirect("/auth/login?callbackURL=/dashboard&error=forbidden");
   }
 
   return (

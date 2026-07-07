@@ -1,7 +1,7 @@
 export const dashboardNavItems = [
-  { href: "/auth", label: "Inicio", description: "Resumen general" },
-  { href: "/auth/ventas", label: "Ventas", description: "Registro comercial" },
-  { href: "/auth/inventario", label: "Inventario", description: "Stock y reposicion" },
-  { href: "/auth/clientes", label: "Clientes", description: "Historial y atencion" },
-  { href: "/auth/caja", label: "Caja", description: "Ingresos y cierre" },
+  { href: "/dashboard", label: "Inicio", description: "Resumen general" },
+  { href: "/dashboard/ventas", label: "Ventas", description: "Registro comercial" },
+  { href: "/dashboard/inventario", label: "Inventario", description: "Stock y reposicion" },
+  { href: "/dashboard/clientes", label: "Clientes", description: "Historial y atencion" },
+  { href: "/dashboard/caja", label: "Caja", description: "Ingresos y cierre" },
 ] as const;
