@@ -3,6 +3,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/features/auth/components/LogoutButton";
 
+export const dynamic = "force-dynamic";
+
 const navItems = [
   { href: "/auth", label: "Inicio" },
   { href: "/auth/ventas", label: "Ventas" },
