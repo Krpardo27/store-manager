@@ -1,64 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import Swal from "sweetalert2";
 
-type ProductLookupSuccess = {
-  ok: true;
-  product: {
-    id: string;
-    name: string;
-    sku: string | null;
-    price: number;
-    quantity: number;
-  };
-  matchType: "exact_sku" | "fuzzy";
-};
-
-type ProductLookupError = {
-  ok: false;
-  message: string;
-};
-
-type LookupResponse = ProductLookupSuccess | ProductLookupError;
-
-type CartItem = {
-  id: string;
-  name: string;
-  sku: string | null;
-  price: number;
-  stock: number;
-  quantity: number;
-};
-
-type BarcodeDetectorInstance = {
-  detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue?: string }>>;
-};
-
-type BarcodeDetectorConstructor = new (options?: {
-  formats?: string[];
-}) => BarcodeDetectorInstance;
-
-type GlobalWithBarcodeDetector = typeof globalThis & {
-  BarcodeDetector?: BarcodeDetectorConstructor;
-};
-
-type CameraFacingMode = "environment" | "user";
-
-function formatCurrency(value: number) {
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency: "CLP",
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+import SaleCartTable from "./SaleCartTable";
+import SaleFeedback from "./SaleFeedback";
+import SaleScannerControls from "./SaleScannerControls";
+import SaleScannerPreview from "./SaleScannerPreview";
+import SaleSummary from "./SaleSummary";
+import { formatCurrency } from "./formatters";
+import type {
+  CameraDevice,
+  CameraFacingMode,
+  CartItem,
+  GlobalWithBarcodeDetector,
+  LookupResponse,
+  ProductLookupSuccess,
+} from "./types";
 
 export default function QuickSaleRegister() {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRequestRef = useRef<number | null>(null);
   const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
   const scanAttemptsRef = useRef(0);
+
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -67,9 +37,11 @@ export default function QuickSaleRegister() {
   const [scanAttempts, setScanAttempts] = useState(0);
   const [scanEngine, setScanEngine] = useState<"native" | "compatible" | null>(null);
   const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>("environment");
-  const [soundFeedbackEnabled, setSoundFeedbackEnabled] = useState(true);
+  const [cameraDevices, setCameraDevices] = useState<CameraDevice[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cameraDebugDetail, setCameraDebugDetail] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
   const [cart, setCart] = useState<CartItem[]>([]);
 
@@ -88,6 +60,7 @@ export default function QuickSaleRegister() {
   const resetFeedback = () => {
     setMessage(null);
     setError(null);
+    setCameraDebugDetail(null);
   };
 
   const resetScanMetrics = () => {
@@ -97,8 +70,6 @@ export default function QuickSaleRegister() {
 
   const trackScanAttempt = () => {
     scanAttemptsRef.current += 1;
-
-    // Reducimos re-renders actualizando UI cada 4 ciclos.
     if (scanAttemptsRef.current % 4 === 0) {
       setScanAttempts(scanAttemptsRef.current);
     }
@@ -127,6 +98,47 @@ export default function QuickSaleRegister() {
 
     setIsCameraOpen(false);
     setScanEngine(null);
+  };
+
+  const refreshCameraDevices = async () => {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return;
+    }
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videos = devices
+        .filter((device) => device.kind === "videoinput")
+        .map((device, index) => ({
+          deviceId: device.deviceId,
+          label: device.label || `Camara ${index + 1}`,
+        }));
+
+      setCameraDevices(videos);
+      setSelectedCameraId((current) => {
+        if (current && videos.some((device) => device.deviceId === current)) {
+          return current;
+        }
+
+        return videos[0]?.deviceId ?? "";
+      });
+    } catch {
+      // Silencioso: algunos navegadores limitan enumerateDevices antes de permisos.
+    }
+  };
+
+  const waitForVideoElement = async (attempts = 8) => {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (videoRef.current) {
+        return videoRef.current;
+      }
+
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => resolve());
+      });
+    }
+
+    return null;
   };
 
   const validateLookupValue = (rawValue: string) => {
@@ -164,43 +176,96 @@ export default function QuickSaleRegister() {
     };
   };
 
-  const playScanFeedback = () => {
-    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
-      navigator.vibrate(120);
-    }
-
-    if (!soundFeedbackEnabled || typeof window === "undefined") {
-      return;
+  const getAudioContext = async () => {
+    if (typeof window === "undefined") {
+      return null;
     }
 
     const globalWithAudio = window as typeof window & {
       webkitAudioContext?: typeof AudioContext;
     };
-
     const AudioContextConstructor = window.AudioContext ?? globalWithAudio.webkitAudioContext;
     if (!AudioContextConstructor) {
-      return;
+      return null;
     }
 
-    const audioContext = new AudioContextConstructor();
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContextConstructor();
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+
+    return audioContextRef.current;
+  };
+
+  const playBeep = async (frequency = 880, durationSeconds = 0.09, gainPeak = 0.1) => {
+    const audioContext = await getAudioContext();
+    if (!audioContext) {
+      return false;
+    }
+
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
 
-    oscillator.type = "sine";
-    oscillator.frequency.value = 880;
+    oscillator.type = "triangle";
+    oscillator.frequency.value = frequency;
     gain.gain.setValueAtTime(0.0001, audioContext.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.15, audioContext.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + 0.11);
+    gain.gain.exponentialRampToValueAtTime(gainPeak, audioContext.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioContext.currentTime + durationSeconds);
 
     oscillator.connect(gain);
     gain.connect(audioContext.destination);
-
     oscillator.start();
-    oscillator.stop(audioContext.currentTime + 0.12);
+    oscillator.stop(audioContext.currentTime + durationSeconds);
 
-    oscillator.onended = () => {
-      void audioContext.close();
-    };
+    return true;
+  };
+
+  const playSaleSuccessSound = async (mode: "item" | "checkout") => {
+    const audioContext = await getAudioContext();
+    if (!audioContext) {
+      return;
+    }
+
+    const start = audioContext.currentTime;
+    const sequence =
+      mode === "checkout"
+        ? [
+            { frequency: 1046, offset: 0, duration: 0.07 },
+            { frequency: 1318, offset: 0.08, duration: 0.08 },
+            { frequency: 1567, offset: 0.17, duration: 0.16 },
+          ]
+        : [
+            { frequency: 1108, offset: 0, duration: 0.06 },
+            { frequency: 1480, offset: 0.07, duration: 0.1 },
+          ];
+
+    sequence.forEach((note) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = mode === "checkout" ? "square" : "triangle";
+      oscillator.frequency.setValueAtTime(note.frequency, start + note.offset);
+
+      gain.gain.setValueAtTime(0.0001, start + note.offset);
+      gain.gain.exponentialRampToValueAtTime(0.2, start + note.offset + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + note.offset + note.duration);
+
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(start + note.offset);
+      oscillator.stop(start + note.offset + note.duration);
+    });
+  };
+
+  const playScanFeedback = () => {
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      navigator.vibrate(120);
+    }
+
+    void playBeep(760, 0.06, 0.06);
   };
 
   const addProductToCart = (incoming: ProductLookupSuccess["product"]) => {
@@ -254,6 +319,28 @@ export default function QuickSaleRegister() {
 
       if (!response.ok || !data.ok) {
         const fallback = "No pudimos agregar ese producto.";
+
+        if (response.status === 404) {
+          const result = await Swal.fire({
+            icon: "info",
+            title: "Producto no encontrado",
+            text: "Ese codigo no existe en inventario. ¿Quieres crearlo ahora?",
+            showCancelButton: true,
+            confirmButtonText: "Crear en inventario",
+            cancelButtonText: "Cancelar",
+            confirmButtonColor: "#18181b",
+            cancelButtonColor: "#3f3f46",
+            reverseButtons: true,
+          });
+
+          if (result.isConfirmed) {
+            router.push(`/dashboard/inventario/new?sku=${encodeURIComponent(value)}`);
+          }
+
+          setError(data.ok ? fallback : data.message || fallback);
+          return;
+        }
+
         setError(data.ok ? fallback : data.message || fallback);
         return;
       }
@@ -264,6 +351,9 @@ export default function QuickSaleRegister() {
           ? `${data.product.name} agregado por codigo.`
           : `${data.product.name} agregado por coincidencia.`,
       );
+
+      void playSaleSuccessSound("item");
+
       setQuery("");
       inputRef.current?.focus();
       inputRef.current?.select();
@@ -290,7 +380,30 @@ export default function QuickSaleRegister() {
     );
   };
 
-  const decreaseQty = (itemId: string) => {
+  const decreaseQty = async (itemId: string) => {
+    const item = cart.find((line) => line.id === itemId);
+    if (!item) {
+      return;
+    }
+
+    if (item.quantity === 1) {
+      const confirm = await Swal.fire({
+        icon: "warning",
+        title: "Quitar producto",
+        text: `\"${item.name}\" quedara fuera de la venta.`,
+        showCancelButton: true,
+        confirmButtonText: "Si, quitar",
+        cancelButtonText: "Cancelar",
+        confirmButtonColor: "#dc2626",
+        cancelButtonColor: "#3f3f46",
+        reverseButtons: true,
+      });
+
+      if (!confirm.isConfirmed) {
+        return;
+      }
+    }
+
     resetFeedback();
     setCart((current) =>
       current
@@ -299,7 +412,28 @@ export default function QuickSaleRegister() {
     );
   };
 
-  const removeItem = (itemId: string) => {
+  const removeItem = async (itemId: string) => {
+    const item = cart.find((line) => line.id === itemId);
+    if (!item) {
+      return;
+    }
+
+    const confirm = await Swal.fire({
+      icon: "warning",
+      title: "Quitar producto",
+      text: `\"${item.name}\" se quitara del carrito.`,
+      showCancelButton: true,
+      confirmButtonText: "Si, quitar",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#dc2626",
+      cancelButtonColor: "#3f3f46",
+      reverseButtons: true,
+    });
+
+    if (!confirm.isConfirmed) {
+      return;
+    }
+
     resetFeedback();
     setCart((current) => current.filter((item) => item.id !== itemId));
   };
@@ -310,16 +444,83 @@ export default function QuickSaleRegister() {
       return;
     }
 
+    const confirm = await Swal.fire({
+      icon: "question",
+      title: "Confirmar cierre de venta",
+      text: `Se descontaran ${totalItems} item(s) del inventario por ${formatCurrency(subtotal)}.`,
+      showCancelButton: true,
+      confirmButtonText: "Si, cerrar venta",
+      cancelButtonText: "Cancelar",
+      confirmButtonColor: "#059669",
+      cancelButtonColor: "#3f3f46",
+      reverseButtons: true,
+      allowOutsideClick: false,
+    });
+
+    if (!confirm.isConfirmed) {
+      return;
+    }
+
     setIsClosing(true);
     resetFeedback();
 
     try {
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      const payload = {
+        paymentMethod,
+        items: cart.map((item) => ({
+          productId: item.id,
+          quantity: item.quantity,
+        })),
+      };
+
+      const response = await fetch("/api/dashboard/sales/checkout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+      };
+
+      if (!response.ok || !data.ok) {
+        setError(data.message || "No pudimos cerrar la venta. Verifica stock y permisos.");
+        await Swal.fire({
+          icon: "error",
+          title: "No se pudo cerrar la venta",
+          text: data.message || "Verifica stock y permisos.",
+          confirmButtonText: "Entendido",
+          confirmButtonColor: "#dc2626",
+        });
+        return;
+      }
+
       const total = formatCurrency(subtotal);
       const items = totalItems;
       setCart([]);
       setMessage(`Venta registrada en modo rapido (${items} items, total ${total}, ${paymentMethod}).`);
+      void playSaleSuccessSound("checkout");
       inputRef.current?.focus();
+
+      await Swal.fire({
+        icon: "success",
+        title: "Venta cerrada",
+        text: `Inventario actualizado correctamente (${items} item(s)).`,
+        timer: 1600,
+        showConfirmButton: false,
+      });
+    } catch {
+      setError("Error inesperado al cerrar la venta.");
+      await Swal.fire({
+        icon: "error",
+        title: "Error inesperado",
+        text: "No se pudo completar el cierre de venta. Intenta nuevamente.",
+        confirmButtonText: "Entendido",
+        confirmButtonColor: "#dc2626",
+      });
     } finally {
       setIsClosing(false);
     }
@@ -337,6 +538,10 @@ export default function QuickSaleRegister() {
 
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
+      }
+
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        void audioContextRef.current.close();
       }
     };
   }, []);
@@ -365,18 +570,56 @@ export default function QuickSaleRegister() {
       stopCamera();
       resetScanMetrics();
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: {
-            ideal: facingMode,
+      const constraintsCandidates: MediaStreamConstraints[] = [];
+      if (selectedCameraId) {
+        constraintsCandidates.push({
+          video: {
+            deviceId: {
+              exact: selectedCameraId,
+            },
           },
+          audio: false,
+        });
+      }
+
+      constraintsCandidates.push(
+        {
+          video: {
+            facingMode: {
+              ideal: facingMode,
+            },
+          },
+          audio: false,
         },
-        audio: false,
-      });
+        {
+          video: true,
+          audio: false,
+        },
+      );
+
+      let stream: MediaStream | null = null;
+      let lastError: unknown = null;
+
+      for (const constraints of constraintsCandidates) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      if (!stream) {
+        throw lastError ?? new Error("No fue posible inicializar la camara.");
+      }
 
       streamRef.current = stream;
+      await refreshCameraDevices();
 
-      const video = videoRef.current;
+      setIsCameraOpen(true);
+      setMessage("Camara activa. Apunta al codigo para agregar producto.");
+
+      const video = await waitForVideoElement();
       if (!video) {
         throw new Error("No se encontro el visor de camara.");
       }
@@ -385,96 +628,110 @@ export default function QuickSaleRegister() {
       video.setAttribute("playsinline", "true");
       await video.play();
 
-      setIsCameraOpen(true);
-      setMessage("Camara activa. Apunta al codigo para agregar producto.");
+      let nativeStarted = false;
+      if (globalWithDetector.BarcodeDetector) {
+        try {
+          const detector = new globalWithDetector.BarcodeDetector({
+            formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "qr_code"],
+          });
+          setScanEngine("native");
 
-      if (!globalWithDetector.BarcodeDetector) {
-        setScanEngine("compatible");
-        const { BrowserMultiFormatReader } = await import("@zxing/browser");
-        const reader = new BrowserMultiFormatReader(undefined, {
-          delayBetweenScanAttempts: 150,
-          delayBetweenScanSuccess: 500,
-        });
-
-        const controls = await reader.decodeFromConstraints(
-          {
-            video: {
-              facingMode: {
-                ideal: facingMode,
-              },
-            },
-            audio: false,
-          },
-          video,
-          (result) => {
-            trackScanAttempt();
-            const rawValue = result?.getText()?.trim();
-            if (!rawValue) {
+          const scanFrame = async () => {
+            if (!videoRef.current || !streamRef.current) {
               return;
             }
 
-            const validated = validateLookupValue(rawValue);
-            if (!validated.valid) {
-              return;
+            try {
+              trackScanAttempt();
+              const barcodes = await detector.detect(videoRef.current);
+              const rawValue = barcodes[0]?.rawValue?.trim();
+
+              if (rawValue) {
+                const validated = validateLookupValue(rawValue);
+                if (!validated.valid) {
+                  frameRequestRef.current = requestAnimationFrame(() => {
+                    void scanFrame();
+                  });
+                  return;
+                }
+
+                playScanFeedback();
+                setQuery(validated.normalized);
+                stopCamera();
+                void searchAndAdd(validated.normalized);
+                return;
+              }
+            } catch {
+              // Ignoramos lecturas intermitentes y seguimos intentando en el siguiente frame.
             }
 
-            playScanFeedback();
-            setQuery(validated.normalized);
-            stopCamera();
-            void searchAndAdd(validated.normalized);
-          },
-        );
+            frameRequestRef.current = requestAnimationFrame(() => {
+              void scanFrame();
+            });
+          };
 
-        zxingControlsRef.current = controls;
-        setMessage("Camara activa (modo compatible). Apunta al codigo para agregar producto.");
+          frameRequestRef.current = requestAnimationFrame(() => {
+            void scanFrame();
+          });
+          nativeStarted = true;
+        } catch (nativeError) {
+          const typedNativeError = nativeError as Error | DOMException;
+          const nativeName = typedNativeError?.name ?? "NativeError";
+          const nativeMessage = typedNativeError?.message ?? "sin detalle";
+          setCameraDebugDetail(`Motor nativo: ${nativeName} - ${nativeMessage}`);
+        }
+      }
+
+      if (nativeStarted) {
         return;
       }
 
-      const detector = new globalWithDetector.BarcodeDetector({
-        formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "qr_code"],
+      setScanEngine("compatible");
+      const { BrowserMultiFormatReader } = await import("@zxing/browser");
+      const reader = new BrowserMultiFormatReader(undefined, {
+        delayBetweenScanAttempts: 150,
+        delayBetweenScanSuccess: 500,
       });
-      setScanEngine("native");
 
-      const scanFrame = async () => {
-        if (!videoRef.current || !streamRef.current) {
+      const controls = await reader.decodeFromStream(stream, video, (result) => {
+        trackScanAttempt();
+        const rawValue = result?.getText()?.trim();
+        if (!rawValue) {
           return;
         }
 
-        try {
-          trackScanAttempt();
-          const barcodes = await detector.detect(videoRef.current);
-          const rawValue = barcodes[0]?.rawValue?.trim();
-
-          if (rawValue) {
-            const validated = validateLookupValue(rawValue);
-            if (!validated.valid) {
-              frameRequestRef.current = requestAnimationFrame(() => {
-                void scanFrame();
-              });
-              return;
-            }
-
-            playScanFeedback();
-            setQuery(validated.normalized);
-            stopCamera();
-            void searchAndAdd(validated.normalized);
-            return;
-          }
-        } catch {
-          // Ignoramos lecturas intermitentes y seguimos intentando en el siguiente frame.
+        const validated = validateLookupValue(rawValue);
+        if (!validated.valid) {
+          return;
         }
 
-        frameRequestRef.current = requestAnimationFrame(() => {
-          void scanFrame();
-        });
-      };
-
-      frameRequestRef.current = requestAnimationFrame(() => {
-        void scanFrame();
+        playScanFeedback();
+        setQuery(validated.normalized);
+        stopCamera();
+        void searchAndAdd(validated.normalized);
       });
-    } catch {
+
+      zxingControlsRef.current = controls;
+      setMessage("Camara activa (modo compatible). Apunta al codigo para agregar producto.");
+    } catch (error) {
       stopCamera();
-      setError("No se pudo iniciar la camara. Revisa permisos del navegador.");
+
+      const typedError = error as DOMException | Error | null;
+      const errorName = typedError && "name" in typedError ? typedError.name : "";
+      const errorMessage = typedError && "message" in typedError ? typedError.message : "sin detalle";
+      setCameraDebugDetail(`${errorName || "Error"}: ${errorMessage}`);
+
+      if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+        setError("No encontramos una camara disponible. Conecta la webcam USB y vuelve a intentar.");
+      } else if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+        setError("La camara esta siendo usada por otra app. Cierra Zoom/Meet/camara y reintenta.");
+      } else if (errorName === "OverconstrainedError" || errorName === "ConstraintNotSatisfiedError") {
+        setError("No se pudo abrir la camara seleccionada. Prueba otra camara en el selector.");
+      } else if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
+        setError("Permiso de camara bloqueado por el navegador. Habilitalo en configuracion del sitio.");
+      } else {
+        setError("No se pudo iniciar la camara. Verifica conexion USB, permisos y que no este en uso.");
+      }
     } finally {
       setIsStartingCamera(false);
     }
@@ -490,216 +747,76 @@ export default function QuickSaleRegister() {
         </p>
       </div>
 
-      <div className="space-y-3 rounded-xl border border-zinc-200 bg-zinc-50 p-4">
-        <label className="space-y-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Codigo / SKU</span>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <input
-              ref={inputRef}
-              type="search"
-              autoFocus
-              value={query}
-              maxLength={maxLookupLength}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter") {
-                  return;
-                }
+      <SaleScannerControls
+        query={query}
+        maxLookupLength={maxLookupLength}
+        isSearching={isSearching}
+        isStartingCamera={isStartingCamera}
+        isCameraOpen={isCameraOpen}
+        cameraFacingMode={cameraFacingMode}
+        cameraDevices={cameraDevices}
+        selectedCameraId={selectedCameraId}
+        inputRef={inputRef}
+        onQueryChange={setQuery}
+        onSubmitQuery={() => {
+          void searchAndAdd(query);
+        }}
+        onToggleCamera={() => {
+          if (isCameraOpen) {
+            stopCamera();
+            return;
+          }
 
-                event.preventDefault();
-                void searchAndAdd(query);
-              }}
-              placeholder="Escanea o escribe un codigo"
-              className="h-11 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-500"
-            />
-            <button
-              type="button"
-              onClick={() => void searchAndAdd(query)}
-              disabled={isSearching}
-              className="inline-flex h-11 min-w-36 items-center justify-center rounded-lg bg-zinc-900 px-4 text-sm font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSearching ? "Buscando..." : "Agregar"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (isCameraOpen) {
-                  stopCamera();
-                  return;
-                }
+          void getAudioContext();
+          void startCameraScanner(cameraFacingMode);
+        }}
+        onFacingModeChange={(nextMode) => {
+          setCameraFacingMode(nextMode);
 
-                void startCameraScanner(cameraFacingMode);
-              }}
-              disabled={isStartingCamera}
-              className="inline-flex h-11 min-w-44 items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isStartingCamera ? "Abriendo camara..." : isCameraOpen ? "Cerrar camara" : "Escanear con camara"}
-            </button>
-          </div>
-        </label>
+          if (isCameraOpen) {
+            void startCameraScanner(nextMode);
+          }
+        }}
+        onCameraDeviceChange={(nextDeviceId) => {
+          setSelectedCameraId(nextDeviceId);
 
-        <p className="text-xs text-zinc-500">
-          Recomendado: conectar scanner USB en modo teclado con sufijo Enter.
-        </p>
+          if (isCameraOpen) {
+            void startCameraScanner(cameraFacingMode);
+          }
+        }}
+      />
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Camara</span>
-            <select
-              value={cameraFacingMode}
-              onChange={(event) => {
-                const nextMode = event.target.value as CameraFacingMode;
-                setCameraFacingMode(nextMode);
+      <SaleScannerPreview
+        isCameraOpen={isCameraOpen}
+        scanAttempts={scanAttempts}
+        scanEngine={scanEngine}
+        videoRef={videoRef}
+      />
 
-                if (isCameraOpen) {
-                  void startCameraScanner(nextMode);
-                }
-              }}
-              className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-500"
-            >
-              <option value="environment">Trasera (recomendada)</option>
-              <option value="user">Frontal</option>
-            </select>
-          </label>
+      <SaleFeedback
+        error={error}
+        message={message}
+        cameraDebugDetail={cameraDebugDetail}
+      />
 
-          <label className="flex h-10 items-center gap-2 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-700 sm:mt-6">
-            <input
-              type="checkbox"
-              checked={soundFeedbackEnabled}
-              onChange={(event) => setSoundFeedbackEnabled(event.target.checked)}
-              className="h-4 w-4 rounded border-zinc-300"
-            />
-            Sonido al detectar codigo
-          </label>
-        </div>
+      <SaleCartTable
+        cart={cart}
+        increaseQty={increaseQty}
+        decreaseQty={decreaseQty}
+        removeItem={removeItem}
+      />
 
-        {isCameraOpen && (
-          <div className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
-                Escaneando...
-              </span>
-              <span className="rounded-full bg-zinc-100 px-2 py-1 text-zinc-600">
-                Intentos: {scanAttempts}
-              </span>
-              <span className="rounded-full bg-zinc-100 px-2 py-1 text-zinc-600">
-                Motor: {scanEngine === "compatible" ? "Compatible" : "Nativo"}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-500">Escaneo movil activo. Enfoca el codigo hasta detectar.</p>
-            <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black">
-              <video ref={videoRef} className="h-56 w-full object-cover" muted />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>
-      )}
-      {message && (
-        <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-          {message}
-        </div>
-      )}
-
-      <div className="overflow-hidden rounded-xl border border-zinc-200">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-zinc-50 text-xs uppercase tracking-[0.16em] text-zinc-500">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Producto</th>
-              <th className="px-4 py-3 font-semibold">Precio</th>
-              <th className="px-4 py-3 font-semibold">Cantidad</th>
-              <th className="px-4 py-3 font-semibold">Subtotal</th>
-              <th className="px-4 py-3 font-semibold">Accion</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100">
-            {cart.map((item) => (
-              <tr key={item.id} className="text-zinc-700">
-                <td className="px-4 py-3">
-                  <p className="font-medium text-zinc-900">{item.name}</p>
-                  <p className="text-xs text-zinc-500">SKU: {item.sku ?? "-"} · Stock: {item.stock}</p>
-                </td>
-                <td className="px-4 py-3">{formatCurrency(item.price)}</td>
-                <td className="px-4 py-3">
-                  <div className="inline-flex items-center rounded-lg border border-zinc-200">
-                    <button
-                      type="button"
-                      onClick={() => decreaseQty(item.id)}
-                      className="h-8 w-8 text-zinc-700 transition-colors hover:bg-zinc-100"
-                    >
-                      -
-                    </button>
-                    <span className="inline-flex min-w-10 justify-center text-sm font-semibold text-zinc-900">
-                      {item.quantity}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => increaseQty(item.id)}
-                      className="h-8 w-8 text-zinc-700 transition-colors hover:bg-zinc-100"
-                    >
-                      +
-                    </button>
-                  </div>
-                </td>
-                <td className="px-4 py-3 font-semibold text-zinc-900">
-                  {formatCurrency(item.price * item.quantity)}
-                </td>
-                <td className="px-4 py-3">
-                  <button
-                    type="button"
-                    onClick={() => removeItem(item.id)}
-                    className="rounded-lg border border-zinc-200 px-2 py-1 text-xs font-semibold text-zinc-600 transition-colors hover:bg-zinc-100"
-                  >
-                    Quitar
-                  </button>
-                </td>
-              </tr>
-            ))}
-
-            {cart.length === 0 && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-sm text-zinc-500">
-                  No hay productos en esta venta.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-zinc-50 p-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="space-y-2">
-          <label className="block space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-zinc-500">Pago</span>
-            <select
-              value={paymentMethod}
-              onChange={(event) => setPaymentMethod(event.target.value)}
-              className="h-10 min-w-48 rounded-lg border border-zinc-300 bg-white px-3 text-sm text-zinc-900 outline-none focus:border-zinc-500"
-            >
-              <option value="efectivo">Efectivo</option>
-              <option value="debito">Debito</option>
-              <option value="credito">Credito</option>
-              <option value="transferencia">Transferencia</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="space-y-1 text-right">
-          <p className="text-xs text-zinc-500">Items: {totalItems}</p>
-          <p className="text-lg font-semibold text-zinc-900">Total: {formatCurrency(subtotal)}</p>
-          <button
-            type="button"
-            onClick={() => void closeSale()}
-            disabled={isClosing || !cart.length}
-            className="mt-2 inline-flex h-11 min-w-44 items-center justify-center rounded-lg bg-emerald-600 px-4 text-sm font-semibold text-white transition-opacity hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isClosing ? "Guardando..." : "Cerrar venta"}
-          </button>
-        </div>
-      </div>
+      <SaleSummary
+        paymentMethod={paymentMethod}
+        onPaymentMethodChange={setPaymentMethod}
+        totalItems={totalItems}
+        subtotal={subtotal}
+        isClosing={isClosing}
+        canClose={cart.length > 0}
+        onCloseSale={() => {
+          void closeSale();
+        }}
+      />
     </section>
   );
 }
