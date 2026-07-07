@@ -1,36 +1,100 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Store Manager
 
-## Getting Started
+Aplicacion web para administrar un negocio local con autenticacion (Better Auth), panel protegido y persistencia en PostgreSQL con Prisma.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router)
+- React 19
+- Better Auth
+- Prisma 7 + PostgreSQL
+- Tailwind CSS 4
+
+## Requisitos
+
+- Node.js 20+
+- npm 10+
+- Base de datos PostgreSQL accesible
+
+## Variables de entorno
+
+Crea un archivo `.env` con las siguientes variables:
+
+```env
+DATABASE_URL=
+BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_SECRET=
+NEXT_PUBLIC_AUTH_BASE_URL=http://localhost:3000
+ADMIN_EMAILS=
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+```
+
+Notas:
+
+- `ADMIN_EMAILS` acepta una lista separada por comas.
+- `NEXT_PUBLIC_AUTH_BASE_URL` debe coincidir con la URL publica del frontend.
+
+## Instalacion
+
+```bash
+npm install
+```
+
+## Desarrollo
+
+1. Genera cliente de Prisma:
+
+```bash
+npx prisma generate
+```
+
+2. Aplica migraciones:
+
+```bash
+npx prisma migrate dev
+```
+
+3. Inicia la app:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Aplicacion disponible en `http://localhost:3000`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev      # entorno local
+npm run build    # build de produccion
+npm run start    # iniciar build de produccion
+npm run lint     # ejecutar ESLint
+```
 
-## Learn More
+## Estructura relevante
 
-To learn more about Next.js, take a look at the following resources:
+- `app/api/auth/[...all]/route.ts`: handler de Better Auth para Next.js.
+- `app/auth/(dashboard)/*`: secciones protegidas del panel.
+- `src/lib/auth.ts`: configuracion de Better Auth.
+- `src/lib/auth-server.ts`: helpers de sesion y autorizacion en servidor.
+- `prisma/schema.prisma`: modelos y relaciones.
+- `prisma/migrations/*`: historial de migraciones.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Seed
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+El proyecto incluye un seed basico en `prisma/seed.ts` que promueve a rol `admin` los correos definidos en `ADMIN_EMAILS`.
 
-## Deploy on Vercel
+Para ejecutar seed:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npx prisma db seed
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Despliegue
+
+Antes de desplegar:
+
+1. Define todas las variables de entorno en el proveedor.
+2. Ejecuta migraciones en la base de datos objetivo.
+3. Asegura que `BETTER_AUTH_URL` y `NEXT_PUBLIC_AUTH_BASE_URL` apunten al dominio final.
