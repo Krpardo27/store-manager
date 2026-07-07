@@ -1,0 +1,62 @@
+import Link from "next/link";
+import { notFound } from "next/navigation";
+
+import EditProductForm from "@/features/admin/products/components/EditProductForm";
+import { prisma } from "@/lib/prisma";
+
+type EditProductPageProps = {
+  params: Promise<{ id?: string }>;
+};
+
+export default async function EditProductPage({ params }: EditProductPageProps) {
+  const { id } = await params;
+
+  if (!id) {
+    notFound();
+  }
+
+  const product = await prisma.product.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      price: true,
+      quantity: true,
+      minStock: true,
+      sku: true,
+      isActive: true,
+    },
+  });
+
+  if (!product) {
+    notFound();
+  }
+
+  return (
+    <section className="space-y-6">
+      <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">
+              Inventario
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-zinc-900">Editar producto</h2>
+            <p className="mt-3 text-sm text-zinc-600">
+              Actualiza la informacion de {product.name}.
+            </p>
+          </div>
+
+          <Link
+            href="/auth/inventario"
+            className="inline-flex h-10 items-center justify-center rounded-xl border border-zinc-200 px-4 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+          >
+            Volver a inventario
+          </Link>
+        </div>
+      </div>
+
+      <EditProductForm product={product} />
+    </section>
+  );
+}
