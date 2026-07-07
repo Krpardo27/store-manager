@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 
 import { ProductSchema, type ProductFieldErrors } from "../schemas/products.schema";
 
-export type ProductActionState = {
+export type UpdateProductActionState = {
   status: "idle" | "success" | "error";
   message: string;
   fieldErrors?: ProductFieldErrors;
@@ -29,31 +29,35 @@ function normalizeSku(value: string) {
   return value.trim().toUpperCase() || null;
 }
 
-export async function createProductAction(
-  _previousState: ProductActionState,
+export async function updateProductAction(
+  id: string,
+  _previousState: UpdateProductActionState,
   formData: FormData,
-): Promise<ProductActionState> {
+): Promise<UpdateProductActionState> {
   const { session, isAuth, isAdmin } = await requireAdmin();
 
   if (!isAuth || !session || !isAdmin) {
-    return { status: "error", message: "No tienes permisos para crear productos" };
+    return { status: "error", message: "No tienes permisos para editar productos" };
   }
 
-  const parsed = ProductSchema.safeParse(productFormDataFrom(formData));
+  const result = ProductSchema.safeParse(productFormDataFrom(formData));
 
-  if (!parsed.success) {
+  if (!result.success) {
     return {
       status: "error",
       message: "Revisa los campos del producto",
-      fieldErrors: parsed.error.flatten().fieldErrors,
+      fieldErrors: result.error.flatten().fieldErrors,
     };
   }
 
-  const sku = normalizeSku(parsed.data.sku ?? "");
+  const sku = normalizeSku(result.data.sku ?? "");
 
   if (sku) {
-    const existingSku = await prisma.product.findUnique({
-      where: { sku },
+    const existingSku = await prisma.product.findFirst({
+      where: {
+        sku,
+        NOT: { id },
+      },
       select: { id: true },
     });
 
@@ -67,23 +71,25 @@ export async function createProductAction(
   }
 
   try {
-    await prisma.product.create({
+    await prisma.product.update({
+      where: { id },
       data: {
-        name: parsed.data.name,
-        description: parsed.data.description || null,
-        price: parsed.data.price,
-        quantity: parsed.data.quantity,
-        minStock: parsed.data.minStock,
+        name: result.data.name,
+        description: result.data.description || null,
+        price: result.data.price,
+        quantity: result.data.quantity,
+        minStock: result.data.minStock,
         sku,
-        isActive: parsed.data.isActive,
+        isActive: result.data.isActive,
       },
     });
 
     revalidatePath("/dashboard/inventario");
+    revalidatePath(`/dashboard/inventario/${id}`);
 
-    return { status: "success", message: "Producto creado correctamente" };
+    return { status: "success", message: "Producto actualizado correctamente" };
   } catch (error) {
     console.error(error);
-    return { status: "error", message: "No fue posible crear el producto" };
+    return { status: "error", message: "No fue posible actualizar el producto" };
   }
 }

@@ -9,12 +9,12 @@ export const authClient = createAuthClient({
 
 function getSafeCallbackPath(callbackURL?: string) {
   if (!callbackURL) {
-    return "/auth";
+    return "/dashboard";
   }
 
   const normalized = callbackURL.trim();
   if (!normalized.startsWith("/") || normalized.startsWith("//")) {
-    return "/auth";
+    return "/dashboard";
   }
 
   return normalized;

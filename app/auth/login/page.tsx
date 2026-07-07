@@ -22,7 +22,7 @@ interface LoginPageProps {
 export default async function LoginPage({ searchParams }: LoginPageProps) {
   const params = await searchParams;
 
-  const callbackURL = params.callbackURL || "/auth";
+  const callbackURL = params.callbackURL || "/dashboard";
 
   return (
     <main
