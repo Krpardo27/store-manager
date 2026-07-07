@@ -83,12 +83,14 @@ export default async function InventarioPage({ searchParams }: InventarioPagePro
           <h3 className="text-lg font-semibold text-zinc-900">Productos registrados</h3>
           <p className="mt-1 text-sm text-zinc-600">Listado rapido del inventario actual.</p>
           <div className="mt-4">
-            <ProductSearch
-              autoFocus
-              showScannerHint
-              enableCameraScan
-              placeholder="Escanea o escribe nombre, SKU o codigo..."
-            />
+            <Suspense>
+              <ProductSearch
+                autoFocus
+                showScannerHint
+                enableCameraScan
+                placeholder="Escanea o escribe nombre, SKU o codigo..."
+              />
+            </Suspense>
           </div>
         </div>
 
