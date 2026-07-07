@@ -61,39 +61,41 @@ export async function POST(request: Request) {
 
   try {
     await prisma.$transaction(async (tx) => {
-      for (const line of mergedItems) {
-        const updated = await tx.product.updateMany({
-          where: {
-            id: line.productId,
-            isActive: true,
-            quantity: {
-              gte: line.quantity,
+      await Promise.all(
+        mergedItems.map(async (line) => {
+          const updated = await tx.product.updateMany({
+            where: {
+              id: line.productId,
+              isActive: true,
+              quantity: {
+                gte: line.quantity,
+              },
             },
-          },
-          data: {
-            quantity: {
-              decrement: line.quantity,
+            data: {
+              quantity: {
+                decrement: line.quantity,
+              },
             },
-          },
-        });
-
-        if (updated.count === 0) {
-          const product = await tx.product.findUnique({
-            where: { id: line.productId },
-            select: { name: true, quantity: true, isActive: true },
           });
 
-          if (!product) {
-            throw new Error("Uno de los productos ya no existe.");
-          }
+          if (updated.count === 0) {
+            const product = await tx.product.findUnique({
+              where: { id: line.productId },
+              select: { name: true, quantity: true, isActive: true },
+            });
 
-          if (!product.isActive) {
-            throw new Error(`El producto ${product.name} esta inactivo.`);
-          }
+            if (!product) {
+              throw new Error("Uno de los productos ya no existe.");
+            }
 
-          throw new Error(`Stock insuficiente para ${product.name}. Disponible: ${product.quantity}.`);
-        }
-      }
+            if (!product.isActive) {
+              throw new Error(`El producto ${product.name} esta inactivo.`);
+            }
+
+            throw new Error(`Stock insuficiente para ${product.name}. Disponible: ${product.quantity}.`);
+          }
+        })
+      );
     });
 
     return Response.json({

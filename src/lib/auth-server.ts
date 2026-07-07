@@ -5,8 +5,10 @@ function getAdminEmails() {
   const raw = process.env.ADMIN_EMAILS ?? "";
   return raw
     .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
+    .flatMap((value) => {
+      const result = value.trim().toLowerCase();
+      return result ? [result] : [];
+    });
 }
 
 function getSessionUserValue<T>(session: unknown, key: string): T | undefined {
