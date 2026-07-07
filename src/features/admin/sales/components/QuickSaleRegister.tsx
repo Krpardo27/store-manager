@@ -57,17 +57,23 @@ export default function QuickSaleRegister() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRequestRef = useRef<number | null>(null);
+  const zxingControlsRef = useRef<{ stop: () => void } | null>(null);
+  const scanAttemptsRef = useRef(0);
   const [query, setQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [isStartingCamera, setIsStartingCamera] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [scanAttempts, setScanAttempts] = useState(0);
+  const [scanEngine, setScanEngine] = useState<"native" | "compatible" | null>(null);
   const [cameraFacingMode, setCameraFacingMode] = useState<CameraFacingMode>("environment");
   const [soundFeedbackEnabled, setSoundFeedbackEnabled] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("efectivo");
   const [cart, setCart] = useState<CartItem[]>([]);
+
+  const maxLookupLength = 80;
 
   const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
@@ -84,7 +90,26 @@ export default function QuickSaleRegister() {
     setError(null);
   };
 
+  const resetScanMetrics = () => {
+    scanAttemptsRef.current = 0;
+    setScanAttempts(0);
+  };
+
+  const trackScanAttempt = () => {
+    scanAttemptsRef.current += 1;
+
+    // Reducimos re-renders actualizando UI cada 4 ciclos.
+    if (scanAttemptsRef.current % 4 === 0) {
+      setScanAttempts(scanAttemptsRef.current);
+    }
+  };
+
   const stopCamera = () => {
+    if (zxingControlsRef.current) {
+      zxingControlsRef.current.stop();
+      zxingControlsRef.current = null;
+    }
+
     if (frameRequestRef.current !== null) {
       cancelAnimationFrame(frameRequestRef.current);
       frameRequestRef.current = null;
@@ -101,6 +126,42 @@ export default function QuickSaleRegister() {
     }
 
     setIsCameraOpen(false);
+    setScanEngine(null);
+  };
+
+  const validateLookupValue = (rawValue: string) => {
+    const value = rawValue.trim();
+
+    if (!value) {
+      return {
+        valid: false,
+        normalized: "",
+        error: "Ingresa o escanea un codigo antes de buscar.",
+      };
+    }
+
+    if (value.length > maxLookupLength) {
+      return {
+        valid: false,
+        normalized: "",
+        error: `El codigo es demasiado largo (maximo ${maxLookupLength} caracteres).`,
+      };
+    }
+
+    const allowedPattern = /^[\p{L}\p{N}\s\-_.:/]+$/u;
+    if (!allowedPattern.test(value)) {
+      return {
+        valid: false,
+        normalized: "",
+        error: "El codigo contiene caracteres no validos.",
+      };
+    }
+
+    return {
+      valid: true,
+      normalized: value,
+      error: null,
+    };
   };
 
   const playScanFeedback = () => {
@@ -176,10 +237,13 @@ export default function QuickSaleRegister() {
   };
 
   const searchAndAdd = async (rawValue: string) => {
-    const value = rawValue.trim();
-    if (!value) {
+    const validated = validateLookupValue(rawValue);
+    if (!validated.valid) {
+      setError(validated.error);
       return;
     }
+
+    const value = validated.normalized;
 
     setIsSearching(true);
     resetFeedback();
@@ -267,6 +331,10 @@ export default function QuickSaleRegister() {
         cancelAnimationFrame(frameRequestRef.current);
       }
 
+      if (zxingControlsRef.current) {
+        zxingControlsRef.current.stop();
+      }
+
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
       }
@@ -276,13 +344,17 @@ export default function QuickSaleRegister() {
   const startCameraScanner = async (facingMode: CameraFacingMode) => {
     const globalWithDetector = globalThis as GlobalWithBarcodeDetector;
 
-    if (!globalWithDetector.BarcodeDetector) {
-      setError("Tu navegador no soporta escaneo por camara. Usa Chrome/Edge en HTTPS.");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError("No se puede acceder a la camara en este dispositivo.");
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setError("No se puede acceder a la camara en este dispositivo.");
+    const isSecure =
+      window.isSecureContext ||
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+    if (!isSecure) {
+      setError("Para usar camara abre la app en HTTPS (o localhost). Revisa la URL actual.");
       return;
     }
 
@@ -291,6 +363,7 @@ export default function QuickSaleRegister() {
 
     try {
       stopCamera();
+      resetScanMetrics();
 
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
@@ -315,9 +388,52 @@ export default function QuickSaleRegister() {
       setIsCameraOpen(true);
       setMessage("Camara activa. Apunta al codigo para agregar producto.");
 
+      if (!globalWithDetector.BarcodeDetector) {
+        setScanEngine("compatible");
+        const { BrowserMultiFormatReader } = await import("@zxing/browser");
+        const reader = new BrowserMultiFormatReader(undefined, {
+          delayBetweenScanAttempts: 150,
+          delayBetweenScanSuccess: 500,
+        });
+
+        const controls = await reader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: {
+                ideal: facingMode,
+              },
+            },
+            audio: false,
+          },
+          video,
+          (result) => {
+            trackScanAttempt();
+            const rawValue = result?.getText()?.trim();
+            if (!rawValue) {
+              return;
+            }
+
+            const validated = validateLookupValue(rawValue);
+            if (!validated.valid) {
+              return;
+            }
+
+            playScanFeedback();
+            setQuery(validated.normalized);
+            stopCamera();
+            void searchAndAdd(validated.normalized);
+          },
+        );
+
+        zxingControlsRef.current = controls;
+        setMessage("Camara activa (modo compatible). Apunta al codigo para agregar producto.");
+        return;
+      }
+
       const detector = new globalWithDetector.BarcodeDetector({
         formats: ["ean_13", "ean_8", "code_128", "code_39", "upc_a", "upc_e", "qr_code"],
       });
+      setScanEngine("native");
 
       const scanFrame = async () => {
         if (!videoRef.current || !streamRef.current) {
@@ -325,14 +441,23 @@ export default function QuickSaleRegister() {
         }
 
         try {
+          trackScanAttempt();
           const barcodes = await detector.detect(videoRef.current);
           const rawValue = barcodes[0]?.rawValue?.trim();
 
           if (rawValue) {
+            const validated = validateLookupValue(rawValue);
+            if (!validated.valid) {
+              frameRequestRef.current = requestAnimationFrame(() => {
+                void scanFrame();
+              });
+              return;
+            }
+
             playScanFeedback();
-            setQuery(rawValue);
+            setQuery(validated.normalized);
             stopCamera();
-            void searchAndAdd(rawValue);
+            void searchAndAdd(validated.normalized);
             return;
           }
         } catch {
@@ -374,6 +499,7 @@ export default function QuickSaleRegister() {
               type="search"
               autoFocus
               value={query}
+              maxLength={maxLookupLength}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") {
@@ -449,6 +575,18 @@ export default function QuickSaleRegister() {
 
         {isCameraOpen && (
           <div className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500" />
+                Escaneando...
+              </span>
+              <span className="rounded-full bg-zinc-100 px-2 py-1 text-zinc-600">
+                Intentos: {scanAttempts}
+              </span>
+              <span className="rounded-full bg-zinc-100 px-2 py-1 text-zinc-600">
+                Motor: {scanEngine === "compatible" ? "Compatible" : "Nativo"}
+              </span>
+            </div>
             <p className="text-xs text-zinc-500">Escaneo movil activo. Enfoca el codigo hasta detectar.</p>
             <div className="overflow-hidden rounded-lg border border-zinc-200 bg-black">
               <video ref={videoRef} className="h-56 w-full object-cover" muted />
