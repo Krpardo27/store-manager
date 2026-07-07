@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import LogoutButton from "@/features/auth/components/LogoutButton";
 import DashboardSidebar from "@/features/admin/products/components/DashboardSidebar";
+import DashboardMobileDock from "@/features/admin/products/components/DashboardMobileDock";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-zinc-100 text-zinc-900">
+    <div className="min-h-screen overflow-x-hidden bg-zinc-100 text-zinc-900">
       <header className="border-b border-zinc-200 bg-white">
         <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center justify-between">
@@ -46,10 +47,12 @@ export default async function DashboardLayout({
         </div>
       </header>
 
-      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-8 sm:px-6 lg:grid-cols-[18rem_1fr]">
+      <div className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-8 pb-28 sm:px-6 lg:pb-8 lg:grid-cols-[18rem_1fr]">
         <DashboardSidebar />
-        <main>{children}</main>
+        <main className="min-w-0">{children}</main>
       </div>
+
+      <DashboardMobileDock />
     </div>
   );
 }

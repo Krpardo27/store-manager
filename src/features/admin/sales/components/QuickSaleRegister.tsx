@@ -738,7 +738,7 @@ export default function QuickSaleRegister() {
   };
 
   return (
-    <section className="space-y-6 rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+    <section className="min-w-0 space-y-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-6">
       <div className="space-y-2">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-zinc-500">Caja rapida</p>
         <h2 className="text-2xl font-semibold text-zinc-900">Venta por escaner</h2>
