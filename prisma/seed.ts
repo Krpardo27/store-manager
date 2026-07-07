@@ -19,8 +19,10 @@ function parseAdminEmails() {
 
   return raw
     .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
+    .flatMap((value) => {
+      const result = value.trim().toLowerCase();
+      return result ? [result] : [];
+    });
 }
 
 async function main() {
