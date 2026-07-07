@@ -5,17 +5,6 @@ import LogoutButton from "@/features/auth/components/LogoutButton";
 import DashboardSidebar from "@/features/admin/products/components/DashboardSidebar";
 
 export const dynamic = "force-dynamic";
-<<<<<<< HEAD
-
-const navItems = [
-  { href: "/auth", label: "Inicio" },
-  { href: "/auth/ventas", label: "Ventas" },
-  { href: "/auth/inventario", label: "Inventario" },
-  { href: "/auth/clientes", label: "Clientes" },
-  { href: "/auth/caja", label: "Caja" },
-];
-=======
->>>>>>> main
 
 export default async function DashboardLayout({
   children,
