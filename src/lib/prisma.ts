@@ -20,6 +20,12 @@ function createPrismaClient() {
   });
 }
 
-export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+function hasCurrentModels(client: PrismaClient | undefined) {
+  return Boolean(client && "product" in client);
+}
+
+export const prisma = hasCurrentModels(globalForPrisma.prisma)
+  ? globalForPrisma.prisma!
+  : createPrismaClient();
 
 globalForPrisma.prisma = prisma;
